@@ -1,0 +1,240 @@
+# 🔐 Claude Code Security Hooks
+
+> Deterministic security guardrails that intercept Claude's tool calls **before** they execute.
+
+[![Install](https://img.shields.io/badge/install-one--liner-blue?style=flat-square)](#install)
+[![Hooks](https://img.shields.io/badge/hooks-6-green?style=flat-square)](#what-gets-installed)
+[![License](https://img.shields.io/badge/license-MIT-grey?style=flat-square)](LICENSE)
+
+Claude Code is powerful. That power needs guardrails. These hooks sit between Claude's decisions and your system — blocking dangerous commands, protecting secrets, and logging everything for audit.
+
+---
+
+## Install
+
+> **Why not `curl | bash`?**  
+> One of these hooks *blocks* `curl | bash` patterns. We practice what we preach.  
+> Download the script, read it, then run it.
+
+```bash
+# Download
+curl -fsSL https://raw.githubusercontent.com/adityaarakeri/claude-on-a-leash/main/install.sh \
+  -o /tmp/claude-hooks-install.sh
+
+# Inspect (please do this)
+cat /tmp/claude-hooks-install.sh
+
+# Install into current project
+bash /tmp/claude-hooks-install.sh
+
+# OR: install globally for all repos
+bash /tmp/claude-hooks-install.sh --global
+```
+
+### Other options
+
+```bash
+bash install.sh --dry-run      # preview what would be installed
+bash install.sh --uninstall    # remove all hooks
+bash install.sh --no-color     # plain output (for CI)
+```
+
+---
+
+## What gets installed
+
+Six hooks wired via `.claude/settings.json`:
+
+| Hook file | Event | Matcher | What it stops |
+|-----------|-------|---------|--------------|
+| `bash-safety-guard.sh` | `PreToolUse` | `Bash` | Destructive commands, RCE, exfiltration, reverse shells, privilege escalation |
+| `file-write-guard.sh` | `PreToolUse` | `Write\|Edit\|MultiEdit` | Writes to system paths, secret files, Claude's own hooks |
+| `read-guard.sh` | `PreToolUse` | `Read` | Reads of secrets, private keys, credentials, and sensitive system files |
+| `network-guard.sh` | `PreToolUse` | `WebFetch` | Plain HTTP, known exfil domains, direct IPs, cloud metadata SSRF |
+| `prompt-injection-guard.sh` | `UserPromptSubmit` | `*` | Instruction overrides, jailbreak patterns, social engineering |
+| `command-audit-logger.sh` | `PostToolUse` | `Bash\|Read\|Write\|Edit\|MultiEdit\|WebFetch` | Logs everything to `.claude/command-audit.log` (async, never blocks) |
+
+---
+
+## How it works
+
+Claude Code's [hooks system](https://docs.anthropic.com/en/docs/claude-code/hooks) fires shell scripts at lifecycle events. Each hook receives a JSON blob on stdin describing what Claude wants to do:
+
+```bash
+# What Claude Code sends your hook:
+{"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}
+
+# Your hook decides:
+exit 0   # allow
+exit 2   # block — stderr becomes feedback Claude reads and adapts to
+```
+
+The feedback loop is the key feature: Claude doesn't just get stopped — it learns *why* and tries a safer approach.
+
+---
+
+## What `bash-safety-guard.sh` blocks
+
+| Category | Examples |
+|----------|---------|
+| Destructive FS | `rm -rf /`, `rm -rf ~`, `dd if=/dev/urandom of=/dev/sda`, `mkfs`, `shred /etc` |
+| Privilege escalation | `sudo rm`, `sudo dd`, `sudo chmod 777`, `su root`, writing to `/etc/sudoers` |
+| System modification | Writing to `/etc/passwd`, `/etc/hosts`, `crontab -e`, adding `~/.ssh/authorized_keys` |
+| Pipe-to-shell RCE | `curl https://... \| bash`, `wget ... \| sh`, `eval $(curl ...)` |
+| Credential exfiltration | `env \| curl`, `cat .aws/credentials \| nc`, `cat id_rsa \| curl`, `history \| curl` |
+| Reverse shells | `bash -i /dev/tcp/...`, `nc -e /bin/sh`, Python socket reverse shells |
+| Fork bombs | `:(){ :\|:& };:`, infinite background loops |
+| Git safety | Force-push to `main`/`master`/`production` |
+| Shutdown/reboot | `shutdown`, `reboot`, `halt`, `poweroff`, `init 0` |
+
+## What `file-write-guard.sh` blocks
+
+- OS paths: `/etc/`, `/usr/bin/`, `/bin/`, `/boot/`, `/sys/`, `/proc/`, `/root/`
+- Secret files: `.env`, `*.pem`, `*.key`, `id_rsa`, `.aws/credentials`, `.kubeconfig`, `terraform.tfvars`, `.npmrc`, `.netrc`, `secrets.yaml`
+- Self-modification: Claude cannot overwrite its own hooks (the obvious bypass attempt)
+- Content scanning: Write calls are scanned for real AWS/Stripe/GitHub/Slack tokens
+
+## What `read-guard.sh` blocks
+
+Preventing reads is just as important as preventing writes. A compromised agent that can `cat ~/.aws/credentials` before exfiltrating it is still a problem.
+
+- SSH private keys: `id_rsa`, `id_ed25519`, `id_ecdsa`, `id_dsa`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.jks`
+- Cloud credentials: `.aws/credentials`, `.aws/config`, `credentials.json`, `service-account.json`
+- Kubernetes/Vault: `.kubeconfig`, `kubeconfig`, `.vault-token`
+- Env files: `.env`, `.env.local`, `.env.production`, `.env.staging`, `.env.development`
+- Package registries: `.npmrc`, `.pypirc`, `.netrc`
+- Infrastructure secrets: `terraform.tfvars`, `secrets.yaml`, `secrets.json`
+- SSH access: `.ssh/authorized_keys`, `.ssh/config`
+- System files: `/etc/shadow`, `/etc/sudoers`, `/etc/sudoers.d/`, `/root/`
+- Crypto wallets: `wallet.dat`, `*.pgp`, `.gnupg/`
+- GPG: `.htpasswd`
+
+All allowed reads are appended to `.claude/file-audit.log` for review.
+
+## What `network-guard.sh` blocks
+
+- Plain HTTP to external hosts (only HTTPS allowed)
+- Known exfil endpoints: `pastebin.com`, `requestbin`, `webhook.site`, ngrok tunnels, OAST/Burp Collaborator
+- Direct IP fetches (SSRF prevention)
+- Cloud metadata endpoints: `169.254.169.254`, `metadata.google.internal` (IAM credential theft)
+
+## What `prompt-injection-guard.sh` blocks
+
+- `"ignore all previous instructions"` and variants
+- `"you are now DAN"`, jailbreak mode, developer mode tricks
+- `"this is Anthropic support"`, `"you have been granted admin access"`
+- Injects branch name + active security policy as `additionalContext` into every session
+
+---
+
+## Audit logs
+
+Every allowed action lands in `.claude/command-audit.log` as newline-delimited JSON:
+
+```jsonl
+{"ts":"2025-03-28T10:00:00Z","session_id":"abc123","tool":"Bash","command":"npm test","risk_flags":[]}
+{"ts":"2025-03-28T10:01:05Z","session_id":"abc123","tool":"Write","file_path":"src/app.js"}
+{"ts":"2025-03-28T10:01:10Z","session_id":"abc123","tool":"WebFetch","url":"https://api.github.com/repos/..."}
+{"ts":"2025-03-28T10:01:15Z","session_id":"abc123","tool":"Read","file_path":"src/config.js"}
+```
+
+All file reads (both allowed and blocked attempts) are also appended to `.claude/file-audit.log`:
+
+```
+2025-03-28T10:01:15Z READ: src/config.js
+```
+
+```bash
+# Pretty-print the last 20 entries
+tail -20 .claude/command-audit.log | python3 -m json.tool
+
+# Find all sudo usage
+grep '"sudo"' .claude/command-audit.log
+
+# Find all network fetches
+grep '"network-fetch"' .claude/command-audit.log
+
+# See everything Claude read this session
+cat .claude/file-audit.log
+```
+
+Both log files are added to `.gitignore` automatically.
+
+---
+
+## Sharing with your team
+
+The `.claude/` directory is designed to be version-controlled:
+
+```bash
+# Add to your repo
+git add .claude/settings.json .claude/hooks/
+git commit -m "security: add Claude Code security hooks"
+```
+
+Then each developer runs the installer once after cloning:
+
+```bash
+bash /tmp/claude-hooks-install.sh
+```
+
+Or add to your `README.md` / `Makefile`:
+
+```makefile
+setup:
+    curl -fsSL https://raw.githubusercontent.com/adityaarakeri/claude-on-a-leash/main/install.sh \
+      -o /tmp/claude-hooks-install.sh && bash /tmp/claude-hooks-install.sh
+```
+
+---
+
+## Verify inside Claude Code
+
+```
+/hooks
+```
+
+This shows all registered hooks. You should see 6 entries across `UserPromptSubmit`, `PreToolUse`, and `PostToolUse`.
+
+---
+
+## Customising
+
+All rules are plain bash — edit the hook files directly. Common adjustments:
+
+```bash
+# Allow force-push to staging (remove the line that blocks it)
+# In bash-safety-guard.sh, remove or comment:
+# if echo "$COMMAND" | grep -qE 'git push.*--force.*\b(main|master)'; then ...
+
+# Block npm install entirely (not just log it)
+# Change warn_log to block() for the package install pattern
+
+# Add your own blocked domain
+# In network-guard.sh, add to the BLOCKED_DOMAINS loop:
+# 'internal-metrics\.mycompany\.com'
+```
+
+---
+
+## Requirements
+
+- **bash** 4+ (macOS ships bash 3 — `brew install bash` or use zsh-compatible syntax)
+- **python3** — required for JSON parsing in hooks
+- **Claude Code** 1.0+ with hooks support
+
+---
+
+## License
+
+MIT — use freely, contribute back.
+
+---
+
+## Contributing
+
+PRs welcome. Especially interested in:
+- Additional dangerous command patterns
+- Windows / WSL2 compatibility improvements
+- Test harness for hook scripts
+- Integration with `gitleaks` / `trufflehog` for richer secret scanning

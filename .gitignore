@@ -1,0 +1,12 @@
+# Claude Code audit logs (generated at runtime — never commit)
+.claude/command-audit.log
+.claude/file-audit.log
+.claude/network-audit.log
+.claude/security.log
+
+# Local settings override (personal, not shared)
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
