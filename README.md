@@ -1,4 +1,4 @@
-# 🔐 Claude Code Security Hooks
+# claude-on-a-leash
 
 > Deterministic security guardrails that intercept Claude's tool calls **before** they execute.
 
@@ -6,14 +6,14 @@
 [![Hooks](https://img.shields.io/badge/hooks-6-green?style=flat-square)](#what-gets-installed)
 [![License](https://img.shields.io/badge/license-MIT-grey?style=flat-square)](LICENSE)
 
-Claude Code is powerful. That power needs guardrails. These hooks sit between Claude's decisions and your system — blocking dangerous commands, protecting secrets, and logging everything for audit.
+Claude Code is an autonomous agent with shell access, file access, and network access. It will absolutely `rm -rf` something important if you let it. These hooks sit between Claude's decisions and your system, blocking dangerous commands, protecting secrets, and logging everything for audit. Six shell scripts. Zero trust.
 
 ---
 
 ## Install
 
-> **Why not `curl | bash`?**  
-> One of these hooks *blocks* `curl | bash` patterns. We practice what we preach.  
+> **Why not `curl | bash`?**
+> One of these hooks *blocks* `curl | bash` patterns. We practice what we preach.
 > Download the script, read it, then run it.
 
 ```bash
@@ -66,10 +66,10 @@ Claude Code's [hooks system](https://docs.anthropic.com/en/docs/claude-code/hook
 
 # Your hook decides:
 exit 0   # allow
-exit 2   # block — stderr becomes feedback Claude reads and adapts to
+exit 2   # block -- stderr becomes feedback Claude reads and adapts to
 ```
 
-The feedback loop is the key feature: Claude doesn't just get stopped — it learns *why* and tries a safer approach.
+The feedback loop is the key feature: Claude doesn't just get stopped. It reads *why*, then tries a safer approach. Blocked hooks are also a great debugging tool for understanding what Claude was actually trying to do.
 
 ---
 
@@ -92,11 +92,11 @@ The feedback loop is the key feature: Claude doesn't just get stopped — it lea
 - OS paths: `/etc/`, `/usr/bin/`, `/bin/`, `/boot/`, `/sys/`, `/proc/`, `/root/`
 - Secret files: `.env`, `*.pem`, `*.key`, `id_rsa`, `.aws/credentials`, `.kubeconfig`, `terraform.tfvars`, `.npmrc`, `.netrc`, `secrets.yaml`
 - Self-modification: Claude cannot overwrite its own hooks (the obvious bypass attempt)
-- Content scanning: Write calls are scanned for real AWS/Stripe/GitHub/Slack tokens
+- Content scanning: write calls are scanned for real AWS/Stripe/GitHub/Slack tokens
 
 ## What `read-guard.sh` blocks
 
-Preventing reads is just as important as preventing writes. A compromised agent that can `cat ~/.aws/credentials` before exfiltrating it is still a problem.
+Preventing reads matters as much as preventing writes. An agent that can `cat ~/.aws/credentials` before exfiltrating it is still a problem, even if the write is blocked.
 
 - SSH private keys: `id_rsa`, `id_ed25519`, `id_ecdsa`, `id_dsa`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.jks`
 - Cloud credentials: `.aws/credentials`, `.aws/config`, `credentials.json`, `service-account.json`
@@ -113,7 +113,7 @@ All allowed reads are appended to `.claude/file-audit.log` for review.
 
 ## What `network-guard.sh` blocks
 
-- Plain HTTP to external hosts (only HTTPS allowed)
+- Plain HTTP to external hosts (HTTPS only)
 - Known exfil endpoints: `pastebin.com`, `requestbin`, `webhook.site`, ngrok tunnels, OAST/Burp Collaborator
 - Direct IP fetches (SSRF prevention)
 - Cloud metadata endpoints: `169.254.169.254`, `metadata.google.internal` (IAM credential theft)
@@ -123,7 +123,7 @@ All allowed reads are appended to `.claude/file-audit.log` for review.
 - `"ignore all previous instructions"` and variants
 - `"you are now DAN"`, jailbreak mode, developer mode tricks
 - `"this is Anthropic support"`, `"you have been granted admin access"`
-- Injects branch name + active security policy as `additionalContext` into every session
+- Injects branch name and active security policy as `additionalContext` into every session
 
 ---
 
@@ -200,7 +200,7 @@ This shows all registered hooks. You should see 6 entries across `UserPromptSubm
 
 ## Customising
 
-All rules are plain bash — edit the hook files directly. Common adjustments:
+All rules are plain bash. Edit the hook files directly. Common adjustments:
 
 ```bash
 # Allow force-push to staging (remove the line that blocks it)
@@ -219,15 +219,15 @@ All rules are plain bash — edit the hook files directly. Common adjustments:
 
 ## Requirements
 
-- **bash** 4+ (macOS ships bash 3 — `brew install bash` or use zsh-compatible syntax)
-- **python3** — required for JSON parsing in hooks
+- **bash** 4+ (macOS ships bash 3 -- `brew install bash` or use zsh-compatible syntax)
+- **python3** -- required for JSON parsing in hooks
 - **Claude Code** 1.0+ with hooks support
 
 ---
 
 ## License
 
-MIT — use freely, contribute back.
+MIT -- use freely, contribute back.
 
 ---
 
