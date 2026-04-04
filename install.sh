@@ -104,7 +104,7 @@ if [[ $GLOBAL -eq 0 ]] && [[ $UNINSTALL -eq 0 ]]; then
 fi
 
 echo -e "\n${B}╔══════════════════════════════════════════╗
-║  🔐 claude-on-a-leash                   ║
+║  🔐 claude-on-a-leash                    ║
 ║  Security hooks for Claude Code          ║
 ╚══════════════════════════════════════════╝${X}"
 [[ $DRY_RUN -eq 1 ]] && echo -e "\n  ${Y}${B}DRY RUN — no files will be written${X}"
@@ -1380,7 +1380,7 @@ fi
 # DONE
 # ══════════════════════════════════════════════════════════════════════════════
 echo -e "\n${G}${B}╔══════════════════════════════════════════╗
-║  Installation complete ✔               ║
+║  Installation complete ✔                 ║
 ╚══════════════════════════════════════════╝${X}\n"
 info "Claude Code: run ${B}/hooks${X} inside Claude Code to verify"
 info "Audit log:   tail -f $HD/../command-audit.log | python3 -m json.tool"
