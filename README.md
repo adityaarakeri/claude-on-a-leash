@@ -1,12 +1,12 @@
 # claude-on-a-leash
 
-> Deterministic security guardrails that intercept Claude's tool calls **before** they execute.
+> Deterministic security guardrails that intercept Claude Code tool calls **before** they execute.
 
 [![Install](https://img.shields.io/badge/install-one--liner-blue?style=flat-square)](#install)
 [![Hooks](https://img.shields.io/badge/hooks-6-green?style=flat-square)](#what-gets-installed)
 [![License](https://img.shields.io/badge/license-MIT-grey?style=flat-square)](LICENSE)
 
-Claude Code is an autonomous agent with shell access, file access, and network access. It will absolutely `rm -rf` something important if you let it. These hooks sit between Claude's decisions and your system, blocking dangerous commands, protecting secrets, and logging everything for audit. Six shell scripts. Zero trust.
+Claude Code can execute real actions in your repo. These hooks sit between Claude and your system, blocking dangerous commands, protecting secrets, and logging what happens. Six shell scripts. Zero trust.
 
 ---
 
@@ -42,6 +42,8 @@ bash install.sh --no-color     # plain output (for CI)
 ---
 
 ## What gets installed
+
+### Claude Code
 
 Six hooks wired via `.claude/settings.json`:
 
@@ -81,7 +83,7 @@ The feedback loop is the key feature: Claude doesn't just get stopped. It reads 
 | Privilege escalation | `sudo rm`, `sudo dd`, `sudo chmod 777`, `su root`, writing to `/etc/sudoers` |
 | System modification | Writing to `/etc/passwd`, `/etc/hosts`, `crontab -e`, adding `~/.ssh/authorized_keys` |
 | Pipe-to-shell RCE | `curl https://... \| bash`, `wget ... \| sh`, `eval $(curl ...)` |
-| Credential exfiltration | `env \| curl`, `cat .aws/credentials \| nc`, `cat id_rsa \| curl`, `history \| curl` |
+| Credential exfiltration | `env \| curl`, `cat .aws/credentials \| nc`, `curl -F file=@.env`, `scp ~/.ssh/id_rsa host:/tmp/`, `rsync .env host:/tmp/` |
 | Reverse shells | `bash -i /dev/tcp/...`, `nc -e /bin/sh`, Python socket reverse shells |
 | Fork bombs | `:(){ :\|:& };:`, infinite background loops |
 | Git safety | Force-push to `main`/`master`/`production` |
@@ -195,8 +197,6 @@ setup:
 ```
 
 This shows all registered hooks. You should see 6 entries across `UserPromptSubmit`, `PreToolUse`, and `PostToolUse`.
-
----
 
 ## Customising
 

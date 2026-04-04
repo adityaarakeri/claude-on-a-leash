@@ -4,14 +4,14 @@
 #   claude-on-a-leash — Security Hooks for AI Coding Agents
 #   https://github.com/adityaarakeri/claude-on-a-leash
 #
-#   Supports: Claude Code · OpenAI Codex
+#   Supports: Claude Code
 #
-#   Installs 5 security hooks that guard the agent's tool calls:
-#     bash-safety-guard       — blocks dangerous shell commands (both agents)
+#   Installs 5 security hooks that guard Claude Code's tool calls:
+#     bash-safety-guard       — blocks dangerous shell commands
 #     file-write-guard        — protects secrets & system paths (Claude Code)
 #     network-guard           — controls WebFetch requests (Claude Code)
-#     prompt-injection-guard  — catches jailbreak/injection attempts (both)
-#     command-audit-logger    — JSONL audit trail of every action (both)
+#     prompt-injection-guard  — catches jailbreak/injection attempts
+#     command-audit-logger    — JSONL audit trail of every action
 #
 #   SAFE INSTALL — download, inspect, THEN run (never pipe-to-shell):
 #     curl -fsSL https://raw.githubusercontent.com/adityaarakeri/claude-on-a-leash/main/install.sh \
@@ -22,9 +22,7 @@
 #   WHY NOT curl|bash? One of these hooks blocks that exact pattern.
 #
 #   OPTIONS:
-#     --claude      Claude Code only (default: both)
-#     --codex       Codex only       (default: both)
-#     --global      Install to ~/.claude / ~/.codex (not project-local)
+#     --global      Install to ~/.claude (not project-local)
 #     --uninstall   Remove all installed hooks
 #     --dry-run     Preview without writing files
 #     --no-color    Plain output
@@ -43,13 +41,11 @@ show_help() {
   cat <<HELPEOF
 Usage: bash install.sh [OPTIONS]
 
-  Security hooks for AI coding agents (Claude Code & OpenAI Codex).
+  Security hooks for Claude Code.
   Intercepts tool calls and blocks dangerous operations before they execute.
 
 OPTIONS:
-  --claude      Install for Claude Code only (default: both agents)
-  --codex       Install for Codex only       (default: both agents)
-  --global      Install to ~/.claude / ~/.codex (global, not project-local)
+  --global      Install to ~/.claude (global, not project-local)
   --uninstall   Remove all installed hooks
   --dry-run     Preview what would be written without making changes
   --no-color    Disable colored output
@@ -57,17 +53,15 @@ OPTIONS:
 
 EXAMPLES:
   bash install.sh                  # interactive — prompts for install location
-  bash install.sh --global         # install to ~/.claude and ~/.codex
-  bash install.sh --claude --global  # global install, Claude Code only
+  bash install.sh --global         # install to ~/.claude
   bash install.sh --dry-run        # preview without writing
   bash install.sh --uninstall      # remove hooks
 HELPEOF
   exit 0
 }
 
-DO_CLAUDE=1; DO_CODEX=1; GLOBAL=0; UNINSTALL=0; DRY_RUN=0; HAS_ARGS=0
+GLOBAL=0; UNINSTALL=0; DRY_RUN=0; HAS_ARGS=0
 for arg in "$@"; do HAS_ARGS=1; case "$arg" in
-  --claude) DO_CODEX=0 ;; --codex) DO_CLAUDE=0 ;;
   --global) GLOBAL=1 ;; --uninstall) UNINSTALL=1 ;; --dry-run) DRY_RUN=1 ;;
   --no-color) NO_COLOR=1; R='';Y='';G='';C='';D='';B='';X='' ;;
   --help|-h) show_help ;;
@@ -111,11 +105,10 @@ fi
 
 echo -e "\n${B}╔══════════════════════════════════════════╗
 ║  🔐 claude-on-a-leash                   ║
-║  Security hooks for AI coding agents    ║
+║  Security hooks for Claude Code          ║
 ╚══════════════════════════════════════════╝${X}"
 [[ $DRY_RUN -eq 1 ]] && echo -e "\n  ${Y}${B}DRY RUN — no files will be written${X}"
-AGENTS=""; [[ $DO_CLAUDE -eq 1 ]] && AGENTS+="Claude Code "; [[ $DO_CODEX -eq 1 ]] && AGENTS+="Codex"
-info "Targets: ${B}${AGENTS}${X}"
+info "Targets: ${B}Claude Code${X}"
 if [[ $GLOBAL -eq 1 ]]; then
   info "Location: ${B}~/.claude${X} (global)"
 else
@@ -130,11 +123,11 @@ command -v jq &>/dev/null && pass "jq (useful for log inspection)" || warn "jq n
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 if [[ $GLOBAL -eq 1 ]]; then
-  CT="$HOME/.claude"; DXT="$HOME/.codex"
+  CT="$HOME/.claude"
 else
-  PR="${CLAUDE_PROJECT_DIR:-$(pwd)}"; CT="$PR/.claude"; DXT="$PR/.codex"
+  PR="${CLAUDE_PROJECT_DIR:-$(pwd)}"; CT="$PR/.claude"
 fi
-HD="$CT/hooks"  # shared hook scripts live in .claude/hooks/ for both agents
+HD="$CT/hooks"
 
 # ── Uninstall ─────────────────────────────────────────────────────────────────
 if [[ $UNINSTALL -eq 1 ]]; then
@@ -142,7 +135,6 @@ if [[ $UNINSTALL -eq 1 ]]; then
   for f in bash-safety-guard file-write-guard network-guard prompt-injection-guard command-audit-logger read-guard; do
     [[ -f "$HD/$f.sh" ]] && { [[ $DRY_RUN -eq 0 ]] && rm "$HD/$f.sh"; pass "Removed $HD/$f.sh"; } || true
   done
-  [[ -f "$DXT/hooks.json" ]] && { [[ $DRY_RUN -eq 0 ]] && rm "$DXT/hooks.json"; pass "Removed $DXT/hooks.json"; }
   warn "Remove the 'hooks' block from $CT/settings.json manually if needed"
   echo -e "\n${G}${B}Done.${X}\n"; exit 0
 fi
@@ -161,7 +153,7 @@ wf "$HD/bash-safety-guard.sh" <<'BASH_SAFETY_GUARD'
 #!/usr/bin/env bash
 # =============================================================================
 #  claude-on-a-leash — bash-safety-guard.sh
-#  Works with: Claude Code + OpenAI Codex
+#  Claude Code hook
 #  Event: PreToolUse | Matcher: Bash
 #
 #  Intercepts every shell command the agent attempts to run.
@@ -192,22 +184,34 @@ import re, sys
 
 cmd = sys.argv[1]
 
-# Expand simple VAR=val; $VAR patterns
-assignments = dict(re.findall(r'\b([A-Za-z_][A-Za-z0-9_]*)=["\x27]?([^"\x27\s;]+)["\x27]?', cmd))
+# Expand simple VAR=val; $VAR patterns, plus very simple command substitutions
+assignments = {}
+for match in re.finditer(r'\b([A-Za-z_][A-Za-z0-9_]*)=(?:"([^"]*)"|\'([^\']*)\'|([^;\s]+))', cmd):
+    name = match.group(1)
+    val = next(part for part in match.groups()[1:] if part is not None)
+    val = val.strip()
+    m = re.fullmatch(r'\$\(\s*printf(?:\s+%s)?\s+([A-Za-z0-9._/\-]+)\s*\)', val)
+    if m:
+        val = m.group(1)
+    assignments[name] = val
 expanded = cmd
-for var, val in assignments.items():
-    expanded = re.sub(r'\$\{' + var + r'\}', val, expanded)
-    expanded = re.sub(r'\$' + var + r'\b', val, expanded)
+for _ in range(5):
+    updated = expanded
+    for var, val in assignments.items():
+        updated = re.sub(r'\$\{' + re.escape(var) + r'\}', val, updated)
+        updated = re.sub(r'\$' + re.escape(var) + r'\b', val, updated)
+    if updated == expanded:
+        break
+    expanded = updated
+
+# Expand direct $(printf rm) / $(printf %s rm) command construction
+expanded = re.sub(r'\$\(\s*printf(?:\s+%s)?\s+([A-Za-z0-9._/\-]+)\s*\)', r'\1', expanded)
 
 print(expanded)
 PYEOF
 ) || NORM_COMMAND="$COMMAND"
 
-# Detect agent: Claude Code always exports CLAUDE_PROJECT_DIR
-AGENT="claude"
-[[ -z "${CLAUDE_PROJECT_DIR:-}" ]] && AGENT="codex"
 LOG_DIR="${CLAUDE_PROJECT_DIR:-$HOME}/.claude"
-[[ "$AGENT" == "codex" ]] && LOG_DIR="$HOME/.codex"
 mkdir -p "$LOG_DIR" 2>/dev/null || true
 
 block() {
@@ -215,18 +219,6 @@ block() {
   echo "BLOCKED: $reason" >&2
   echo "Command: $COMMAND" >&2
   echo "If this is intentional, ask the developer to run it manually." >&2
-  # Codex also accepts JSON stdout for structured denials
-  if [[ "$AGENT" == "codex" ]]; then
-    python3 -c "
-import json, sys
-print(json.dumps({
-  'hookSpecificOutput': {
-    'hookEventName': 'PreToolUse',
-    'permissionDecision': 'deny',
-    'permissionDecisionReason': sys.argv[1]
-  }
-}))" "$reason" 2>/dev/null || true
-  fi
   exit 2
 }
 
@@ -287,6 +279,15 @@ fi
 
 if cmd_matches 'ln\s+(-s|-sf|--symbolic)\s+.*\.(env|pem|key|ssh\/id_)'; then
   block "symlink to secret file — potential path traversal attack"
+fi
+
+# H2: Block suspicious command construction for dangerous executables
+if cmd_matches '\$\(\s*printf(?:\s+%s)?\s+(rm|dd|mkfs|shred|shutdown|reboot|halt|poweroff)\s*\)'; then
+  block "dangerous command constructed via printf command substitution"
+fi
+
+if cmd_matches '\$[A-Za-z_][A-Za-z0-9_]*\$[A-Za-z_][A-Za-z0-9_]*\s+(-[A-Za-z-]+\s+)*(\/|~\/|\/etc|\/usr|\/bin|\/sbin|\/boot|\/sys|\/proc|\/dev|\/root)\b'; then
+  block "dangerous command assembled from adjacent shell variables"
 fi
 
 # H5: Protect audit logs from Bash-based tampering
@@ -440,8 +441,28 @@ if cmd_matches '(wget)\s+--post-data'; then
   block "wget --post-data — potential exfiltration"
 fi
 
+if cmd_matches '\b(curl|wget)\b.*(^|[[:space:]])-F[[:space:]]+[^[:space:]]*=@'; then
+  block "multipart file upload via curl/wget form data — exfiltration risk"
+fi
+
 if cmd_matches '\|\s*(nc|ncat|netcat)\s+\S+\s+[0-9]+'; then
   block "piping data to netcat — potential exfiltration"
+fi
+
+if cmd_matches '\b(scp|sftp)\b.*(\.env|\.pem|\.key|id_rsa|id_dsa|id_ecdsa|id_ed25519|/etc/shadow|/etc/passwd|\.aws/credentials|\.aws/config)\b'; then
+  block "copying sensitive file to remote host via scp/sftp — exfiltration risk"
+fi
+
+if cmd_matches '\brsync\b.*(\.env|\.pem|\.key|id_rsa|id_dsa|id_ecdsa|id_ed25519|/etc/shadow|/etc/passwd|\.aws/credentials|\.aws/config)\b.*[A-Za-z0-9._-]+@?[A-Za-z0-9._-]*:'; then
+  block "syncing sensitive file to remote host via rsync — exfiltration risk"
+fi
+
+if cmd_matches '\bftp\b.*(\.env|\.pem|\.key|id_rsa|id_dsa|id_ecdsa|id_ed25519|/etc/shadow|/etc/passwd|\.aws/credentials|\.aws/config)\b'; then
+  block "sending sensitive file via ftp — exfiltration risk"
+fi
+
+if cmd_matches '\bssh\b\s+\S+.*(cat|tee)\s+>\s+\S+'; then
+  block "remote shell redirection via ssh — potential exfiltration channel"
 fi
 
 # H6: DNS-based exfiltration
@@ -541,7 +562,11 @@ fi
 # 9. PACKAGE MANAGER GLOBAL INSTALLS (warn + log, don't block)
 # ─────────────────────────────────────────────────────────────────────────────
 
-if cmd_matches '(npm\s+install\s+-g|yarn\s+global\s+add|pip\s+install\s+--user\s+|pip3?\s+install\s+(?!.*-r)\S+\s*$|apt(-get)?\s+install|brew\s+install)'; then
+if cmd_matches '(npm\s+install\s+-g|yarn\s+global\s+add|pip\s+install\s+--user\s+|apt(-get)?\s+install|brew\s+install)'; then
+  warn_log "Global package install attempted — review what is being installed"
+fi
+
+if cmd_matches 'pip3?\s+install\s+\S+\s*$' && ! cmd_matches 'pip3?\s+install\s+.*\s-r(\s|$)'; then
   warn_log "Global package install attempted — review what is being installed"
 fi
 
@@ -587,13 +612,17 @@ if [[ -z "${FILE_PATH:-}" ]]; then
   exit 2
 fi
 
-# M5 fix: portable path resolution using python3 (realpath -m is GNU-only, absent on macOS)
-ABS_PATH=$(python3 -c "
-import os, sys
-p = sys.argv[1]
-# os.path.abspath handles .. traversal without requiring the path to exist
-print(os.path.abspath(p))
-" "$FILE_PATH" 2>/dev/null || echo "$FILE_PATH")
+# M5/H1 fix: resolve both lexical and symlink-aware paths
+PATH_INFO=$(python3 -c "
+import json, os, pathlib, sys
+p = pathlib.Path(sys.argv[1]).expanduser()
+print(json.dumps({
+  'abs_path': os.path.abspath(str(p)),
+  'resolved_path': str(p.resolve(strict=False))
+}))
+" "$FILE_PATH" 2>/dev/null || echo '{}')
+ABS_PATH=$(printf '%s' "$PATH_INFO" | python3 -c "import json,sys; print(json.load(sys.stdin).get('abs_path',''))" 2>/dev/null || echo "$FILE_PATH")
+RESOLVED_PATH=$(printf '%s' "$PATH_INFO" | python3 -c "import json,sys; print(json.load(sys.stdin).get('resolved_path',''))" 2>/dev/null || echo "$ABS_PATH")
 
 block() {
   echo "BLOCKED: Cannot write to '$FILE_PATH'" >&2
@@ -628,8 +657,8 @@ BLOCKED_SYSTEM_PATHS=(
 )
 
 for pattern in "${BLOCKED_SYSTEM_PATHS[@]}"; do
-  if echo "$ABS_PATH" | grep -qE "$pattern"; then
-    block "system file — modifying $ABS_PATH could break the OS"
+  if printf '%s\n' "$ABS_PATH" | grep -qE "$pattern" || printf '%s\n' "$RESOLVED_PATH" | grep -qE "$pattern"; then
+    block "system file — modifying $FILE_PATH could break the OS"
   fi
 done
 
@@ -675,7 +704,7 @@ SECRET_PATH_PATTERNS=(
 )
 
 for pattern in "${SECRET_PATH_PATTERNS[@]}"; do
-  if echo "$FILE_PATH" | grep -qiE "$pattern" || echo "$ABS_PATH" | grep -qiE "$pattern"; then
+  if printf '%s\n' "$FILE_PATH" | grep -qiE "$pattern" || printf '%s\n' "$ABS_PATH" | grep -qiE "$pattern" || printf '%s\n' "$RESOLVED_PATH" | grep -qiE "$pattern"; then
     block "this file likely contains secrets or credentials"
   fi
 done
@@ -684,26 +713,21 @@ done
 # 3. PROTECT CLAUDE'S OWN CONFIG & HOOKS (prevent self-modification attacks)
 # ─────────────────────────────────────────────────────────────────────────────
 
-if echo "$ABS_PATH" | grep -qE '/\.claude/(settings\.json|settings\.local\.json)$'; then
+if printf '%s\n' "$ABS_PATH" | grep -qE '/\.claude/(settings\.json|settings\.local\.json)$' || printf '%s\n' "$RESOLVED_PATH" | grep -qE '/\.claude/(settings\.json|settings\.local\.json)$'; then
   block "Claude cannot modify its own settings — this would allow disabling security hooks"
 fi
 
-if echo "$ABS_PATH" | grep -qE '/\.claude/hooks/'; then
+if printf '%s\n' "$ABS_PATH" | grep -qE '/\.claude/hooks/' || printf '%s\n' "$RESOLVED_PATH" | grep -qE '/\.claude/hooks/'; then
   block "Claude cannot modify its own security hooks — this prevents hook bypass attacks"
 fi
 
 # H5: Protect audit/security log files from tampering
-if echo "$ABS_PATH" | grep -qE '/\.(claude|codex)/.*\.log$'; then
+if printf '%s\n' "$ABS_PATH" | grep -qE '/\.claude/.*\.log$' || printf '%s\n' "$RESOLVED_PATH" | grep -qE '/\.claude/.*\.log$'; then
   block "Claude cannot modify audit log files — this prevents evidence tampering"
 fi
 
-# Protect Codex config files from self-modification (C6 fix)
-if echo "$ABS_PATH" | grep -qE '/\.codex/(hooks\.json|config\.toml)$'; then
-  block "Claude cannot modify Codex hook configuration — this prevents hook bypass attacks"
-fi
-
 # Protect git hooks from being overwritten
-if echo "$ABS_PATH" | grep -qE '/\.git/hooks/'; then
+if printf '%s\n' "$ABS_PATH" | grep -qE '/\.git/hooks/' || printf '%s\n' "$RESOLVED_PATH" | grep -qE '/\.git/hooks/'; then
   block "Claude cannot overwrite git hooks directly — edit the source hooks/ directory"
 fi
 
@@ -779,7 +803,7 @@ wf "$HD/network-guard.sh" <<'NETWORK_GUARD'
 #!/usr/bin/env bash
 # =============================================================================
 #  claude-on-a-leash — network-guard.sh
-#  Claude Code only (Codex does not yet emit WebFetch events)
+#  Claude Code only
 #  Event: PreToolUse | Matcher: WebFetch
 #
 #  Controls all external HTTP requests Claude makes via WebFetch.
@@ -921,7 +945,7 @@ wf "$HD/prompt-injection-guard.sh" <<'PROMPT_INJECTION_GUARD'
 #!/usr/bin/env bash
 # =============================================================================
 #  claude-on-a-leash — prompt-injection-guard.sh
-#  Works with: Claude Code + OpenAI Codex
+#  Claude Code hook
 #  Event: UserPromptSubmit
 #
 #  Scans every user prompt for injection attacks before the agent sees it.
@@ -934,25 +958,25 @@ wf "$HD/prompt-injection-guard.sh" <<'PROMPT_INJECTION_GUARD'
 set -uo pipefail
 
 INPUT=$(cat)
-
-# Detect agent: Claude Code always exports CLAUDE_PROJECT_DIR
-AGENT="claude"
-[[ -z "${CLAUDE_PROJECT_DIR:-}" ]] && AGENT="codex"
 LOG_DIR="${CLAUDE_PROJECT_DIR:-$HOME}/.claude"
-[[ "$AGENT" == "codex" ]] && LOG_DIR="$HOME/.codex"
 mkdir -p "$LOG_DIR" 2>/dev/null || true
 
-# Claude Code uses 'message' field; Codex uses 'prompt' field
+# Claude Code uses the 'message' field
 PROMPT=$(echo "$INPUT" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
-msg = d.get('prompt', d.get('message', ''))
+msg = d.get('message', '')
 if isinstance(msg, list):
     parts = [p.get('text','') for p in msg if isinstance(p, dict)]
     print(' '.join(parts))
 else:
     print(str(msg))
-" 2>/dev/null || echo "")
+" 2>/dev/null)
+
+if [[ -z "${PROMPT:-}" ]]; then
+  echo "BLOCKED: Could not parse prompt from hook input — fail-closed for safety" >&2
+  exit 2
+fi
 
 # M4 fix: normalize Unicode — strip zero-width chars, normalize homoglyphs to ASCII
 PROMPT=$(python3 -c "
@@ -971,12 +995,6 @@ block() {
   local reason="$1"
   echo "BLOCKED: Potential prompt injection — $reason" >&2
   echo "If this is a legitimate request, rephrase without injection-like patterns." >&2
-  # Codex also accepts structured JSON block on stdout
-  if [[ "$AGENT" == "codex" ]]; then
-    python3 -c "
-import json, sys
-print(json.dumps({'decision': 'block', 'reason': sys.argv[1]}))" "$reason" 2>/dev/null || true
-  fi
   exit 2
 }
 
@@ -1028,7 +1046,7 @@ done
 
 SOCIAL_ENG_PATTERNS=(
   'this is (anthropic|openai) (support|staff|team|engineer)'
-  'i am (from |an? )?(anthropic|openai|claude|codex)'
+  'i am (from |an? )?(anthropic|openai|claude)'
   'you have been granted (elevated|admin|root|sudo) (access|permissions)'
   'emergency override'
   'master (key|password|token|override)'
@@ -1053,7 +1071,7 @@ PROTECTED_BRANCH=0
 echo "$BRANCH" | grep -qE '^(main|master|production|release/)' && PROTECTED_BRANCH=1
 
 CONTEXT="[claude-on-a-leash — security hooks active]
-Agent: $AGENT | Branch: $BRANCH | Dir: $PROJECT_DIR"
+Agent: claude | Branch: $BRANCH | Dir: $PROJECT_DIR"
 
 if [[ $PROTECTED_BRANCH -eq 1 ]]; then
   CONTEXT="$CONTEXT
@@ -1064,22 +1082,10 @@ CONTEXT="$CONTEXT
 Active guards: bash-safety-guard, file-write-guard, network-guard, command-audit-logger
 Policy: no secrets in files (use env vars), no curl|bash, no eval with remote content, HTTPS only for external requests."
 
-# Output format differs per agent
-if [[ "$AGENT" == "codex" ]]; then
-  python3 -c "
-import json, sys
-print(json.dumps({
-  'hookSpecificOutput': {
-    'hookEventName': 'UserPromptSubmit',
-    'additionalContext': sys.argv[1]
-  }
-}))" "$CONTEXT" 2>/dev/null || true
-else
-  # Claude Code accepts flat {"additionalContext": "..."}
-  python3 -c "
+# Claude Code accepts flat {"additionalContext": "..."}
+python3 -c "
 import json, sys
 print(json.dumps({'additionalContext': sys.argv[1]}))" "$CONTEXT" 2>/dev/null || true
-fi
 
 exit 0
 PROMPT_INJECTION_GUARD
@@ -1091,7 +1097,7 @@ wf "$HD/command-audit-logger.sh" <<'AUDIT_LOGGER'
 #  CLAUDE CODE HOOK — command-audit-logger.sh
 #  Event: PostToolUse  |  Matcher: Bash|Write|Edit|MultiEdit|WebFetch
 #
-#  Runs AFTER every tool call. Creates a tamper-evident audit log of
+#  Runs AFTER every tool call. Creates a JSONL audit log of
 #  everything Claude executed. Non-blocking — exit 0 always.
 #
 #  Log file: .claude/command-audit.log  (JSONL format)
@@ -1192,11 +1198,17 @@ if [[ -z "${FILE_PATH:-}" ]]; then
   exit 2
 fi
 
-# Portable path resolution (M5-aligned: no realpath -m dependency)
-ABS_PATH=$(python3 -c "
-import os, sys
-print(os.path.abspath(sys.argv[1]))
-" "$FILE_PATH" 2>/dev/null || echo "$FILE_PATH")
+# Portable path resolution (M5/H1-aligned: no realpath -m dependency)
+PATH_INFO=$(python3 -c "
+import json, os, pathlib, sys
+p = pathlib.Path(sys.argv[1]).expanduser()
+print(json.dumps({
+  'abs_path': os.path.abspath(str(p)),
+  'resolved_path': str(p.resolve(strict=False))
+}))
+" "$FILE_PATH" 2>/dev/null || echo '{}')
+ABS_PATH=$(printf '%s' "$PATH_INFO" | python3 -c "import json,sys; print(json.load(sys.stdin).get('abs_path',''))" 2>/dev/null || echo "$FILE_PATH")
+RESOLVED_PATH=$(printf '%s' "$PATH_INFO" | python3 -c "import json,sys; print(json.load(sys.stdin).get('resolved_path',''))" 2>/dev/null || echo "$ABS_PATH")
 
 block() {
   echo "BLOCKED: Cannot read '$FILE_PATH'" >&2
@@ -1245,7 +1257,7 @@ SENSITIVE_PATH_PATTERNS=(
 )
 
 for pattern in "${SENSITIVE_PATH_PATTERNS[@]}"; do
-  if printf '%s\n' "$FILE_PATH" | grep -qiE "$pattern" || printf '%s\n' "$ABS_PATH" | grep -qiE "$pattern"; then
+  if printf '%s\n' "$FILE_PATH" | grep -qiE "$pattern" || printf '%s\n' "$ABS_PATH" | grep -qiE "$pattern" || printf '%s\n' "$RESOLVED_PATH" | grep -qiE "$pattern"; then
     block "this file likely contains secrets or credentials — reading it could lead to exfiltration"
   fi
 done
@@ -1261,7 +1273,7 @@ SENSITIVE_SYSTEM_PATHS=(
 )
 
 for pattern in "${SENSITIVE_SYSTEM_PATHS[@]}"; do
-  if printf '%s\n' "$ABS_PATH" | grep -qE "$pattern"; then
+  if printf '%s\n' "$ABS_PATH" | grep -qE "$pattern" || printf '%s\n' "$RESOLVED_PATH" | grep -qE "$pattern"; then
     block "reading sensitive system file — potential credential/config exposure"
   fi
 done
@@ -1278,15 +1290,19 @@ READ_GUARD
 # chmod all
 if [[ $DRY_RUN -eq 0 ]]; then chmod +x "$HD"/*.sh; fi
 for h in bash-safety-guard file-write-guard network-guard prompt-injection-guard command-audit-logger read-guard; do
-  pass "$h.sh ($(wc -l < "$HD/$h.sh" 2>/dev/null || echo '?') lines)"; done
+  if [[ $DRY_RUN -eq 1 ]]; then
+    info "[dry-run] $h.sh"
+  else
+    pass "$h.sh ($(wc -l < "$HD/$h.sh" 2>/dev/null || echo '?') lines)"
+  fi
+done
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CLAUDE CODE — settings.json
 # ══════════════════════════════════════════════════════════════════════════════
-if [[ $DO_CLAUDE -eq 1 ]]; then
-  step "Claude Code → $CT/settings.json"
-  CS="$CT/settings.json"
-  HOOKS_JSON=$(python3 -c "
+step "Claude Code → $CT/settings.json"
+CS="$CT/settings.json"
+HOOKS_JSON=$(python3 -c "
 import json; H='$HD'
 d = {'hooks': {
   'UserPromptSubmit': [{'matcher':'','hooks':[{'type':'command','command':f'bash {H}/prompt-injection-guard.sh'}]}],
@@ -1299,12 +1315,12 @@ d = {'hooks': {
   'PostToolUse': [{'matcher':'Bash|Read|Write|Edit|MultiEdit|WebFetch','hooks':[{'type':'command','command':f'bash {H}/command-audit-logger.sh','async':True}]}]
 }}
 print(json.dumps(d))")
-  if [[ $DRY_RUN -eq 0 ]]; then
-    if [[ ! -f "$CS" ]]; then
-      mkdir -p "$(dirname "$CS")"; echo "$HOOKS_JSON" | python3 -m json.tool > "$CS"; pass "Created $CS"
-    else
-      # M7 fix: atomic write via temp file + mv to prevent TOCTOU race condition
-      python3 - "$CS" "$HOOKS_JSON" << 'MERGE'
+if [[ $DRY_RUN -eq 0 ]]; then
+  if [[ ! -f "$CS" ]]; then
+    mkdir -p "$(dirname "$CS")"; echo "$HOOKS_JSON" | python3 -m json.tool > "$CS"; pass "Created $CS"
+  else
+    # M7 fix: atomic write via temp file + mv to prevent TOCTOU race condition
+    python3 - "$CS" "$HOOKS_JSON" << 'MERGE'
 import json, sys, os, tempfile
 path, new_raw = sys.argv[1], sys.argv[2]
 with open(path) as f: ex = json.load(f)
@@ -1321,33 +1337,10 @@ fd, tmp = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
 with os.fdopen(fd, 'w') as f: json.dump(ex, f, indent=2)
 os.replace(tmp, path)
 MERGE
-      pass "Merged into $CS"
-    fi
-  else info "[dry-run] $CS"; fi
-fi
-
-# ══════════════════════════════════════════════════════════════════════════════
-# CODEX — hooks.json + config.toml
-# ══════════════════════════════════════════════════════════════════════════════
-if [[ $DO_CODEX -eq 1 ]]; then
-  step "Codex → $DXT/hooks.json + config.toml"
-  [[ $DRY_RUN -eq 0 ]] && mkdir -p "$DXT"
-  CODEX_HOOKS=$(python3 -c "
-import json; H='$HD'
-d = {'_readme':'claude-on-a-leash — github.com/adityaarakeri/claude-on-a-leash', 'hooks': {
-  'UserPromptSubmit': [{'hooks':[{'type':'command','command':f'bash {H}/prompt-injection-guard.sh','statusMessage':'Checking prompt safety','timeout':10}]}],
-  'PreToolUse':       [{'matcher':'Bash','hooks':[{'type':'command','command':f'bash {H}/bash-safety-guard.sh','statusMessage':'Checking command safety','timeout':5}]}],
-  'PostToolUse':      [{'matcher':'Bash','hooks':[{'type':'command','command':f'bash {H}/command-audit-logger.sh','timeout':5}]}]
-}}
-print(json.dumps(d, indent=2))")
-  if [[ $DRY_RUN -eq 0 ]]; then
-    echo "$CODEX_HOOKS" > "$DXT/hooks.json"; pass "Written: $DXT/hooks.json"
-    CF="$DXT/config.toml"
-    if   [[ ! -f "$CF" ]]; then printf '[features]\ncodex_hooks = true\n' > "$CF"; pass "Created: $CF"
-    elif grep -q 'codex_hooks' "$CF"; then sed -i.bak 's/codex_hooks\s*=\s*false/codex_hooks = true/' "$CF" && rm -f "$CF.bak"; pass "Enabled codex_hooks in $CF"
-    else printf '\n[features]\ncodex_hooks = true\n' >> "$CF"; pass "Appended codex_hooks to $CF"; fi
-  else info "[dry-run] $DXT/hooks.json + config.toml"; fi
-  warn "Codex hooks are experimental — currently Bash-only (Write/WebFetch guards activate when Codex adds those events)"
+    pass "Merged into $CS"
+  fi
+else
+  info "[dry-run] $CS"
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1355,7 +1348,7 @@ fi
 # ══════════════════════════════════════════════════════════════════════════════
 step ".gitignore"
 GI="${CLAUDE_PROJECT_DIR:-$(pwd)}/.gitignore"
-GE=$'\n# claude-on-a-leash audit logs (auto-generated)\n.claude/command-audit.log\n.claude/file-audit.log\n.claude/network-audit.log\n.claude/security.log\n.codex/command-audit.log\n.codex/security.log'
+GE=$'\n# claude-on-a-leash audit logs (auto-generated)\n.claude/command-audit.log\n.claude/file-audit.log\n.claude/network-audit.log\n.claude/security.log'
 if [[ $GLOBAL -eq 0 ]] && [[ $DRY_RUN -eq 0 ]]; then
   grep -q 'command-audit.log' "$GI" 2>/dev/null && info "Already updated" || { printf '%s' "$GE" >> "$GI"; pass ".gitignore updated"; }
 elif [[ $DRY_RUN -eq 1 ]]; then info "[dry-run] .gitignore"
@@ -1389,8 +1382,7 @@ fi
 echo -e "\n${G}${B}╔══════════════════════════════════════════╗
 ║  Installation complete ✔               ║
 ╚══════════════════════════════════════════╝${X}\n"
-[[ $DO_CLAUDE -eq 1 ]] && info "Claude Code: run ${B}/hooks${X} inside Claude Code to verify"
-[[ $DO_CODEX  -eq 1 ]] && info "Codex:       hooks auto-load from ${B}$DXT/hooks.json${X}"
+info "Claude Code: run ${B}/hooks${X} inside Claude Code to verify"
 info "Audit log:   tail -f $HD/../command-audit.log | python3 -m json.tool"
 info "Uninstall:   bash $0 --uninstall"
 echo -e "\n  ${D}⭐  github.com/adityaarakeri/claude-on-a-leash${X}\n"
