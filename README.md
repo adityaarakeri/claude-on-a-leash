@@ -1,4 +1,10 @@
-# claude-on-a-leash
+<p align="center">
+  <img src="assets/claude-on-a-leash.png" width="200"/>
+</p>
+
+<h1 align="center">Claude on a Leash</h1>
+<!-- --- -->
+<!-- # claude-on-a-leash -->
 
 > Deterministic security guardrails that intercept Claude Code tool calls **before** they execute.
 
