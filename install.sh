@@ -133,9 +133,35 @@ HD="$CT/hooks"
 if [[ $UNINSTALL -eq 1 ]]; then
   step "Uninstalling"
   for f in bash-safety-guard file-write-guard network-guard prompt-injection-guard command-audit-logger read-guard; do
-    [[ -f "$HD/$f.sh" ]] && { [[ $DRY_RUN -eq 0 ]] && rm "$HD/$f.sh"; pass "Removed $HD/$f.sh"; } || true
+    if [[ -f "$HD/$f.sh" ]]; then
+      if [[ $DRY_RUN -eq 0 ]]; then
+        rm "$HD/$f.sh"; pass "Removed $HD/$f.sh"
+      else
+        info "[dry-run] Would remove: $HD/$f.sh"
+      fi
+    fi
   done
-  warn "Remove the 'hooks' block from $CT/settings.json manually if needed"
+  # Remove hooks block from settings.json
+  CS="$CT/settings.json"
+  if [[ -f "$CS" ]]; then
+    if [[ $DRY_RUN -eq 0 ]]; then
+      python3 - "$CS" << 'REMOVE_HOOKS'
+import json, sys, os, tempfile
+path = sys.argv[1]
+with open(path) as f: ex = json.load(f)
+ex.pop('hooks', None)
+dir_name = os.path.dirname(path) or '.'
+fd, tmp = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
+with os.fdopen(fd, 'w') as f: json.dump(ex, f, indent=2)
+os.replace(tmp, path)
+REMOVE_HOOKS
+      pass "Removed hooks block from $CS"
+    else
+      info "[dry-run] Would remove hooks block from $CS"
+    fi
+  else
+    info "No $CS found — nothing to clean"
+  fi
   echo -e "\n${G}${B}Done.${X}\n"; exit 0
 fi
 
