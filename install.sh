@@ -81,11 +81,15 @@ wf() {
 }
 
 # ── Interactive location prompt ───────────────────────────────────────────────
-if [[ $GLOBAL -eq 0 ]] && [[ $UNINSTALL -eq 0 ]]; then
+if [[ $GLOBAL -eq 0 ]]; then
   if [[ -t 0 ]]; then
-    # Interactive terminal — ask the user
+    # Interactive terminal — ask the user (applies to both install and uninstall)
     echo ""
-    echo -e "${B}Where would you like to install?${X}"
+    if [[ $UNINSTALL -eq 1 ]]; then
+      echo -e "${B}Where would you like to uninstall from?${X}"
+    else
+      echo -e "${B}Where would you like to install?${X}"
+    fi
     echo -e "  ${C}1)${X} Current project  ${D}(./.claude/hooks/)${X}"
     echo -e "  ${C}2)${X} Global           ${D}(~/.claude/hooks/)${X}"
     echo ""
@@ -97,7 +101,7 @@ if [[ $GLOBAL -eq 0 ]] && [[ $UNINSTALL -eq 0 ]]; then
         *) echo "  Please enter 1 or 2." ;;
       esac
     done
-  elif [[ $HAS_ARGS -eq 0 ]]; then
+  elif [[ $HAS_ARGS -eq 0 ]] && [[ $UNINSTALL -eq 0 ]]; then
     # Non-interactive with no args — show help instead of silently installing
     show_help
   fi
@@ -141,23 +145,48 @@ if [[ $UNINSTALL -eq 1 ]]; then
       fi
     fi
   done
-  # Remove hooks block from settings.json
+  # Remove leash-specific entries from settings.json hooks block
   CS="$CT/settings.json"
   if [[ -f "$CS" ]]; then
     if [[ $DRY_RUN -eq 0 ]]; then
-      python3 - "$CS" << 'REMOVE_HOOKS'
+      if python3 - "$CS" << 'REMOVE_HOOKS'
 import json, sys, os, tempfile
 path = sys.argv[1]
+leash_scripts = {
+    'bash-safety-guard.sh', 'file-write-guard.sh', 'network-guard.sh',
+    'prompt-injection-guard.sh', 'command-audit-logger.sh', 'read-guard.sh'
+}
 with open(path) as f: ex = json.load(f)
-ex.pop('hooks', None)
-dir_name = os.path.dirname(path) or '.'
+hooks = ex.get('hooks', {})
+removed = 0
+for event in list(hooks.keys()):
+    filtered = []
+    for group in hooks[event]:
+        inner = group.get('hooks', [])
+        kept = [h for h in inner if not any(s in h.get('command', '') for s in leash_scripts)]
+        removed += len(inner) - len(kept)
+        if kept:
+            g = dict(group); g['hooks'] = kept; filtered.append(g)
+    if filtered:
+        hooks[event] = filtered
+    else:
+        del hooks[event]
+if not hooks:
+    ex.pop('hooks', None)
+if removed == 0:
+    sys.exit(0)  # nothing to write
+dir_name = os.path.dirname(os.path.abspath(path))
 fd, tmp = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
 with os.fdopen(fd, 'w') as f: json.dump(ex, f, indent=2)
 os.replace(tmp, path)
 REMOVE_HOOKS
-      pass "Removed hooks block from $CS"
+      then
+        pass "Removed leash hooks from $CS"
+      else
+        fail "Failed to update $CS — check that the file contains valid JSON"; exit 1
+      fi
     else
-      info "[dry-run] Would remove hooks block from $CS"
+      info "[dry-run] Would remove leash hooks from $CS"
     fi
   else
     info "No $CS found — nothing to clean"
@@ -171,8 +200,9 @@ fi
 step "Writing hook scripts → $HD"
 [[ $DRY_RUN -eq 0 ]] && mkdir -p "$HD"
 
-# Note: all heredoc delimiters are unquoted so $(...) and variables expand.
-# Hook bodies use single-quoted strings for their own grep patterns.
+# Note: all heredoc delimiters are single-quoted (e.g. <<'BASH_SAFETY_GUARD') so
+# $(...) and variables do NOT expand inside hook bodies. Expansion only happens
+# in the outer install.sh shell, not within the heredoc content itself.
 
 # ─── bash-safety-guard.sh ─────────────────────────────────────────────────────
 wf "$HD/bash-safety-guard.sh" <<'BASH_SAFETY_GUARD'
@@ -426,8 +456,8 @@ if cmd_matches 'printf\s+.*\\x[0-9a-fA-F].*\|\s*(ba)?sh'; then
 fi
 
 # Process substitution with curl/wget (C3)
-if cmd_matches '(bash|sh|source)\s+<\('; then
-  block "process substitution execution — potential remote code execution"
+if cmd_matches '(bash|sh|source)\s+<\(\s*(curl|wget)'; then
+  block "process substitution with curl/wget — remote code execution"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -600,8 +630,6 @@ fi
 # ALL CLEAR — log and allow
 # ─────────────────────────────────────────────────────────────────────────────
 
-echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] ALLOWED: $COMMAND" \
-  >> "$LOG_DIR/command-audit.log" 2>/dev/null || true
 exit 0
 BASH_SAFETY_GUARD
 
@@ -987,11 +1015,12 @@ INPUT=$(cat)
 LOG_DIR="${CLAUDE_PROJECT_DIR:-$HOME}/.claude"
 mkdir -p "$LOG_DIR" 2>/dev/null || true
 
-# Claude Code uses the 'message' field
+# Claude Code sends the prompt in the 'prompt' field (UserPromptSubmit schema);
+# fall back to 'message' for forward-compatibility with any future schema changes
 PROMPT=$(echo "$INPUT" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
-msg = d.get('message', '')
+msg = d.get('prompt', '') or d.get('message', '')
 if isinstance(msg, list):
     parts = [p.get('text','') for p in msg if isinstance(p, dict)]
     print(' '.join(parts))
@@ -1005,9 +1034,10 @@ if [[ -z "${PROMPT:-}" ]]; then
 fi
 
 # M4 fix: normalize Unicode — strip zero-width chars, normalize homoglyphs to ASCII
-PROMPT=$(python3 -c "
+# Prompt is passed via stdin to avoid ARG_MAX limits on large pastes.
+PROMPT=$(printf '%s' "$PROMPT" | python3 -c "
 import unicodedata, sys, re
-text = sys.argv[1]
+text = sys.stdin.read()
 # Strip zero-width characters (U+200B, U+200C, U+200D, U+FEFF, etc.)
 text = re.sub(r'[\u200b\u200c\u200d\u2060\ufeff\u00ad]', '', text)
 # NFKD normalization maps homoglyphs/full-width chars to ASCII equivalents
@@ -1015,7 +1045,7 @@ text = unicodedata.normalize('NFKD', text)
 # Strip remaining non-ASCII combining marks
 text = ''.join(c for c in text if not unicodedata.combining(c))
 print(text)
-" "$PROMPT" 2>/dev/null) || true
+" 2>/dev/null) || true
 
 block() {
   local reason="$1"
@@ -1328,8 +1358,8 @@ done
 # ══════════════════════════════════════════════════════════════════════════════
 step "Claude Code → $CT/settings.json"
 CS="$CT/settings.json"
-HOOKS_JSON=$(python3 -c "
-import json; H='$HD'
+HOOKS_JSON=$(HOOK_DIR="$HD" python3 -c "
+import json, os; H=os.environ['HOOK_DIR']
 d = {'hooks': {
   'UserPromptSubmit': [{'matcher':'','hooks':[{'type':'command','command':f'bash {H}/prompt-injection-guard.sh'}]}],
   'PreToolUse': [

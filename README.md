@@ -34,9 +34,10 @@ bash /tmp/claude-hooks-install.sh --global
 ### Other options
 
 ```bash
-bash install.sh --dry-run      # preview what would be installed
-bash install.sh --uninstall    # remove all hooks
-bash install.sh --no-color     # plain output (for CI)
+bash install.sh --dry-run               # preview what would be installed
+bash install.sh --uninstall             # remove leash hooks (project-local)
+bash install.sh --uninstall --global    # remove leash hooks (global install)
+bash install.sh --no-color              # plain output (for CI)
 ```
 
 ---
@@ -126,6 +127,8 @@ All allowed reads are appended to `.claude/file-audit.log` for review.
 - `"you are now DAN"`, jailbreak mode, developer mode tricks
 - `"this is Anthropic support"`, `"you have been granted admin access"`
 - Injects branch name and active security policy as `additionalContext` into every session
+
+> **Note:** The hook reads the `prompt` field from the `UserPromptSubmit` input (with a fallback to `message`). If you see `BLOCKED: Could not parse prompt from hook input`, re-run the installer to get the updated hook — older versions incorrectly read from `message` only, which is always empty in the current Claude Code hook schema.
 
 ---
 
