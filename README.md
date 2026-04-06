@@ -10,6 +10,7 @@
 
 [![Install](https://img.shields.io/badge/install-one--liner-blue?style=flat-square)](#install)
 [![Hooks](https://img.shields.io/badge/hooks-6-green?style=flat-square)](#what-gets-installed)
+[![MCP](https://img.shields.io/badge/MCP-server-purple?style=flat-square)](#mcp-server)
 [![License](https://img.shields.io/badge/license-MIT-grey?style=flat-square)](LICENSE)
 
 Claude Code can execute real actions in your repo. These hooks sit between Claude and your system, blocking dangerous commands, protecting secrets, and logging what happens. Six shell scripts. Zero trust.
@@ -62,6 +63,71 @@ Six hooks wired via `.claude/settings.json`:
 | `network-guard.sh` | `PreToolUse` | `WebFetch` | Plain HTTP, known exfil domains, direct IPs, cloud metadata SSRF |
 | `prompt-injection-guard.sh` | `UserPromptSubmit` | `*` | Instruction overrides, jailbreak patterns, social engineering |
 | `command-audit-logger.sh` | `PostToolUse` | `Bash\|Read\|Write\|Edit\|MultiEdit\|WebFetch` | Logs everything to `.claude/command-audit.log` (async, never blocks) |
+
+---
+
+## MCP Server
+
+The same guardrails are also available as an **MCP server** — so any MCP-aware agent (Codex, GPT-4o, Gemini, custom frameworks) can validate actions before executing them.
+
+> **Important:** MCP is advisory. An agent *should* consult these tools before acting.
+> For hard enforcement in Claude Code, keep the original bash hooks. Use both together.
+
+### Tools
+
+| Tool | What it validates |
+|---|---|
+| `validate_bash_command(command)` | Destructive FS, RCE, exfiltration, reverse shells, fork bombs, privilege escalation, git force-push |
+| `validate_file_write(path, content?)` | System paths, secret filenames, credential patterns in content |
+| `validate_file_read(path)` | SSH keys, cloud credentials, `.env` files, sensitive system files |
+| `validate_network_request(url)` | Plain HTTP, exfil domains, direct IPs, cloud metadata SSRF |
+| `scan_prompt_injection(prompt)` | Jailbreak phrases, instruction overrides, social engineering |
+| `get_audit_log(n, filter_tool, filter_blocked_only)` | Query the local audit log |
+| `validate_all(...)` | Validate multiple actions in one call, returns per-field results + overall |
+
+### Quickstart
+
+```bash
+pip install mcp
+python mcp/server.py
+```
+
+**Claude Desktop** — add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "claude-on-a-leash": {
+      "command": "python",
+      "args": ["/path/to/claude-on-a-leash/mcp/server.py"]
+    }
+  }
+}
+```
+
+**Claude Code** — add to `.claude/settings.json` alongside your existing hooks:
+
+```json
+{
+  "mcpServers": {
+    "leash": {
+      "command": "python",
+      "args": ["./mcp/server.py"]
+    }
+  }
+}
+```
+
+### Hooks vs MCP
+
+| | Bash hooks | MCP server |
+|---|---|---|
+| Enforcement | Hard block (`exit 2`) | Advisory (agent must respect) |
+| Works with | Claude Code only | Any MCP-aware agent |
+| Bypass risk | Very hard | Agent could ignore response |
+| Audit log | `.claude/command-audit.log` | `leash-audit.log` |
+
+Full MCP docs: [mcp/README.md](mcp/README.md)
 
 ---
 
