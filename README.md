@@ -306,6 +306,46 @@ MIT -- use freely, contribute back.
 
 ---
 
+## Local Development
+
+### Hook scripts
+
+Test the bash hooks directly by piping JSON to them:
+
+```bash
+# Should block (exit 2)
+echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /"}}' | bash .claude/hooks/bash-safety-guard.sh
+echo $?  # expect 2
+
+# Should allow (exit 0)
+echo '{"tool_name":"Bash","tool_input":{"command":"ls -la"}}' | bash .claude/hooks/bash-safety-guard.sh
+echo $?  # expect 0
+```
+
+Run the full test suites:
+
+```bash
+bash tests/test_bash_safety_guard.sh
+bash tests/test_file_write_guard.sh
+bash tests/test_network_guard.sh
+```
+
+### MCP server
+
+```bash
+cd mcp
+pip install mcp pytest
+pytest test_mcp.py -v
+```
+
+Run the server locally (listens on stdio):
+
+```bash
+python mcp/server.py
+```
+
+---
+
 ## Contributing
 
 PRs welcome. Especially interested in:
